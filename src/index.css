@@ -1,0 +1,6 @@
+/* Tailwind directive imports.  These must come first so that
+   Tailwind can layer its base, component, and utility styles
+   correctly. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
