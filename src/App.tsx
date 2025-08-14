@@ -52,6 +52,13 @@ export type Squad = {
   leaderPin: string;
   members: { name: string; note?: string; joinedAt: number }[];
   createdAt: number;
+  /**
+   * Email address of the squad owner. This is stored when the squad is
+   * created so that notifications can be sent when members join or
+   * leave. It may be undefined for older squads created before this
+   * field existed.
+   */
+  ownerEmail?: string;
 };
 
 // Row shape returned from Supabase for the squads table.  We use
@@ -72,6 +79,11 @@ type DBSquad = {
   leader_pin: string;
   created_at: string;
   created_by: string | null;
+  /**
+   * Email address of the squad owner. This is nullable because older
+   * rows may not have this field populated.
+   */
+  owner_email: string | null;
 };
 
 // Convert a row from the database into our Squad type.  Members are
@@ -90,6 +102,7 @@ function mapFromDB(row: DBSquad): Omit<Squad, "members"> {
     contact: { type: row.contact_type, value: row.contact_value },
     leaderPin: row.leader_pin,
     createdAt: new Date(row.created_at).getTime(),
+    ownerEmail: row.owner_email ?? undefined,
   };
 }
 
@@ -314,6 +327,8 @@ function MainApp() {
       contact_value: data.contact.value,
       leader_pin: data.leaderPin,
       created_by: user?.id ?? null,
+      // Persist the owner's email address so we can send notifications
+      owner_email: user?.email ?? null,
     });
     setTab("browse");
     setToast({ kind: "success", text: "Squad posted" });
@@ -324,11 +339,39 @@ function MainApp() {
   // Supabase policy.  After insertion, the realtime subscription
   // will refresh the state.
   async function joinSquad(id: string, member: { name: string; note?: string }) {
+    // Insert the new member into the database
     await supabase.from("members").insert({
       squad_id: id,
       name: member.name,
       note: member.note ?? null,
     });
+
+    // Attempt to notify the squad owner via a serverless function.  We look up
+    // the squad's owner email and title to construct a meaningful message.  If
+    // the email address is missing (e.g., for legacy squads), this step is
+    // skipped.  Errors are logged to the console but do not block the UI.
+    try {
+      const { data: squadRow } = await supabase
+        .from("squads")
+        .select("owner_email,title")
+        .eq("id", id)
+        .single();
+      if (squadRow && squadRow.owner_email) {
+        await fetch("/api/send-notification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: squadRow.owner_email,
+            subject: `New member joined your squad: ${squadRow.title}`,
+            message: `${member.name} has joined your squad \"${squadRow.title}\".`,
+          }),
+        });
+      }
+    } catch (err) {
+      console.error("Failed to send join notification", err);
+    }
+
+    // Close the join dialog and show a success toast
     setJoinTarget(null);
     setToast({ kind: "success", text: "Joined this squad" });
   }
