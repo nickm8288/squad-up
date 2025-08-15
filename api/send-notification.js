@@ -29,10 +29,12 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        from: 'no-reply@squad-up.app',
+        // Use Resend's default onboarding address until a custom domain is verified
+        from: 'Squad Up <onboarding@resend.dev>',
         to: email,
         subject: subject || 'Squad Up notification',
-        html: message || '',
+        // Send the message as plain text; you can replace with `html` for HTML content
+        text: message || '',
       }),
     });
     const data = await response.json();
